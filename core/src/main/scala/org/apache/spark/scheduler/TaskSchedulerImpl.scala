@@ -325,6 +325,8 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     var newExecAvail = false
     for (o <- offers) {
       if (!hostToExecutors.contains(o.host)) {
+        // added by zhaojie
+        logInfo("Initialize the host to executors for host " + o.host)
         hostToExecutors(o.host) = new HashSet[String]()
       }
       if (!executorIdToRunningTaskIds.contains(o.executorId)) {
@@ -372,8 +374,17 @@ private[spark] class TaskSchedulerImpl private[scheduler](
       var launchedTaskAtCurrentMaxLocality = false
       for (currentMaxLocality <- taskSet.myLocalityLevels) {
         do {
-          launchedTaskAtCurrentMaxLocality = resourceOfferSingleTaskSet(
-            taskSet, currentMaxLocality, shuffledOffers, availableCpus, tasks)
+          // added by zhaojie
+          // the first stage (stage id = 0 ) should keep data locality strictly for privacy concern
+          if (taskSet.stageId < 1 && currentMaxLocality > TaskLocality.NODE_LOCAL)
+            launchedTaskAtCurrentMaxLocality = false
+          else {
+            launchedTaskAtCurrentMaxLocality = resourceOfferSingleTaskSet(
+              taskSet, currentMaxLocality, shuffledOffers, availableCpus, tasks)
+          }
+
+          /*launchedTaskAtCurrentMaxLocality = resourceOfferSingleTaskSet(
+            taskSet, currentMaxLocality, shuffledOffers, availableCpus, tasks)*/
           launchedAnyTask |= launchedTaskAtCurrentMaxLocality
         } while (launchedTaskAtCurrentMaxLocality)
       }

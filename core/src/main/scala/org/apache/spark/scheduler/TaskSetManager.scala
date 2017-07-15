@@ -18,6 +18,7 @@
 package org.apache.spark.scheduler
 
 import java.io.NotSerializableException
+import java.net.InetAddress
 import java.nio.ByteBuffer
 import java.util.concurrent.ConcurrentLinkedQueue
 
@@ -204,7 +205,9 @@ private[spark] class TaskSetManager(
         case e: ExecutorCacheTaskLocation =>
           pendingTasksForExecutor.getOrElseUpdate(e.executorId, new ArrayBuffer) += index
         case e: HDFSCacheTaskLocation =>
-          val exe = sched.getExecutorsAliveOnHost(loc.host)
+          // modified by zhaojie
+          //val exe = sched.getExecutorsAliveOnHost(loc.host)
+          val exe = sched.getExecutorsAliveOnHost(InetAddress.getByName(loc.host).getHostAddress)
           exe match {
             case Some(set) =>
               for (e <- set) {
@@ -217,8 +220,17 @@ private[spark] class TaskSetManager(
           }
         case _ =>
       }
-      pendingTasksForHost.getOrElseUpdate(loc.host, new ArrayBuffer) += index
+
+      // added by zhaojie
+      logInfo("add pending task, task index: " + index)
+      val hostAddress = InetAddress.getByName(loc.host).getHostAddress
+      logInfo("host name: " + loc.host + ", ip address: " + hostAddress)
+      /*pendingTasksForHost.getOrElseUpdate(loc.host, new ArrayBuffer) += index
       for (rack <- sched.getRackForHost(loc.host)) {
+        pendingTasksForRack.getOrElseUpdate(rack, new ArrayBuffer) += index
+      }*/
+      pendingTasksForHost.getOrElseUpdate(hostAddress, new ArrayBuffer) += index
+      for (rack <- sched.getRackForHost(hostAddress)) {
         pendingTasksForRack.getOrElseUpdate(rack, new ArrayBuffer) += index
       }
     }
@@ -449,6 +461,9 @@ private[spark] class TaskSetManager(
           allowedLocality = maxLocality
         }
       }
+
+      // added by zhaojie
+      logInfo("taskset name: " + name + ", allowed locality level: " + allowedLocality + ", max locality level: " + maxLocality + ", host: " + host)
 
       dequeueTask(execId, host, allowedLocality).map { case ((index, taskLocality, speculative)) =>
         // Found a task; do some bookkeeping and return a task description
@@ -1001,7 +1016,17 @@ private[spark] class TaskSetManager(
         pendingTasksForRack.keySet.exists(sched.hasHostAliveOnRack(_))) {
       levels += RACK_LOCAL
     }
+
+    // modified by zhaojie
+    //levels += ANY
+    // added by zhaojie
+    // we force the data input of the first stage can not be located to other nodes for privacy reasons
+    /*if (stageId >= 1)
+      levels += ANY*/
     levels += ANY
+
+    // added by zhaojie
+    logInfo("Valid locality levels for " + taskSet + ": " + levels.mkString(", "))
     logDebug("Valid locality levels for " + taskSet + ": " + levels.mkString(", "))
     levels.toArray
   }

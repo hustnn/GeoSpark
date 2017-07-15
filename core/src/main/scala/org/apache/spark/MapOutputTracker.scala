@@ -154,8 +154,12 @@ private[spark] abstract class MapOutputTracker(conf: SparkConf) extends Logging 
   def getStatistics(dep: ShuffleDependency[_, _, _]): MapOutputStatistics = {
     val statuses = getStatuses(dep.shuffleId)
     // Synchronize on the returned array because, on the driver, it gets mutated in place
+    // added by zhaojie
+    logInfo("shuffleId is" + dep.shuffleId)
+    logInfo("num of statuses (map outputs)" + statuses.length)
     statuses.synchronized {
       val totalSizes = new Array[Long](dep.partitioner.numPartitions)
+      logInfo("num of partitions (reduce input)" + totalSizes.length)
       for (s <- statuses) {
         for (i <- 0 until totalSizes.length) {
           totalSizes(i) += s.getSizeForBlock(i)

@@ -91,6 +91,8 @@ public class ExternalShuffleClient extends ShuffleClient {
       File[] shuffleFiles) {
     checkInit();
     logger.debug("External shuffle fetch from {}:{} (executor id {})", host, port, execId);
+    // added by zhaojie
+    logger.info("External shuffle fetch from {}:{} (executor id {})", host, port, execId);
     try {
       RetryingBlockFetcher.BlockFetchStarter blockFetchStarter =
           (blockIds1, listener1) -> {

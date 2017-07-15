@@ -25,6 +25,10 @@ import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.netty.handler.traffic.ChannelTrafficShapingHandler;
+import io.netty.handler.traffic.GlobalChannelTrafficShapingHandler;
+import io.netty.handler.traffic.AbstractTrafficShapingHandler;
+
 import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.buffer.NioManagedBuffer;
 import org.apache.spark.network.client.RpcResponseCallback;
@@ -65,6 +69,10 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
   /** Returns each chunk part of a stream. */
   private final StreamManager streamManager;
 
+  // added by zhaojie
+  //private  ChannelTrafficShapingHandler channelShaping;
+  private AbstractTrafficShapingHandler channelShaping;
+
   public TransportRequestHandler(
       Channel channel,
       TransportClient reverseClient,
@@ -73,6 +81,19 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
     this.reverseClient = reverseClient;
     this.rpcHandler = rpcHandler;
     this.streamManager = rpcHandler.getStreamManager();
+  }
+  
+  // added by zhaojie to initialize channelShaping
+  public TransportRequestHandler(
+          Channel channel,
+          TransportClient reverseClient,
+          RpcHandler rpcHandler,
+          AbstractTrafficShapingHandler channelShaping) {
+    this.channel = channel;
+    this.reverseClient = reverseClient;
+    this.rpcHandler = rpcHandler;
+    this.streamManager = rpcHandler.getStreamManager();
+    this.channelShaping = channelShaping;
   }
 
   @Override
@@ -189,6 +210,7 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
    */
   private void respond(Encodable result) {
     SocketAddress remoteAddress = channel.remoteAddress();
+
     channel.writeAndFlush(result).addListener(future -> {
       if (future.isSuccess()) {
         logger.trace("Sent result {} to client {}", result, remoteAddress);

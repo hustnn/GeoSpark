@@ -1245,6 +1245,9 @@ class DAGScheduler(
                 shuffleStage.outputLocInMapOutputTrackerFormat(),
                 changeEpoch = true)
 
+              // added by zhaojie
+              mapOutputTracker.getStatistics(shuffleStage.shuffleDep)
+
               clearCacheLocs()
 
               if (!shuffleStage.isAvailable) {

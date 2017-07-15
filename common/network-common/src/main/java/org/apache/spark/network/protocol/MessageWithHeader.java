@@ -35,7 +35,7 @@ import org.apache.spark.network.buffer.ManagedBuffer;
  *
  * The header must be a ByteBuf, while the body can be a ByteBuf or a FileRegion.
  */
-class MessageWithHeader extends AbstractReferenceCounted implements FileRegion {
+public class MessageWithHeader extends AbstractReferenceCounted implements FileRegion {
 
   @Nullable private final ManagedBuffer managedBuffer;
   private final ByteBuf header;

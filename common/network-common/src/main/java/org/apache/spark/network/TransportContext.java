@@ -23,6 +23,15 @@ import java.util.List;
 import io.netty.channel.Channel;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
+
+// added by zhaojie
+import io.netty.handler.traffic.GlobalChannelTrafficShapingHandler;
+import io.netty.handler.traffic.ChannelTrafficShapingHandler;
+import org.apache.spark.network.traffic.SparkGlobalChannelTrafficShapingHandler;
+import org.apache.spark.network.traffic.SparkChannelTrafficShapingHandler;
+import io.netty.handler.traffic.AbstractTrafficShapingHandler;
+import java.util.concurrent.Executors;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -144,6 +153,7 @@ public class TransportContext {
       RpcHandler channelRpcHandler) {
     try {
       TransportChannelHandler channelHandler = createChannelHandler(channel, channelRpcHandler);
+
       channel.pipeline()
         .addLast("encoder", ENCODER)
         .addLast(TransportFrameDecoder.HANDLER_NAME, NettyUtils.createFrameDecoder())
@@ -159,6 +169,59 @@ public class TransportContext {
     }
   }
 
+
+  /**
+   * added by zhaojie
+   * @param channel
+   * @param channelRpcHandler
+   * @param host
+     * @return
+     */
+  public TransportChannelHandler initializePipeline(
+          SocketChannel channel,
+          RpcHandler channelRpcHandler,
+          String host) {
+    try {
+      // added by zhaojie
+      //logger.info("want to try control read bandwidth on host: " + host);
+      //final ChannelTrafficShapingHandler channelShaping = new ChannelTrafficShapingHandler(1, 1, 1000);
+
+      // added by zhaojie, add globalTrafficShaping with addLast
+      //final GlobalChannelTrafficShapingHandler globalShaping = new GlobalChannelTrafficShapingHandler(Executors.newScheduledThreadPool(1), 100, 100, 10, 10, 1000);
+      //logger.info("create global traffic shaping");
+
+      // added by zhaojie, add sparkglobalTrafficShaping
+      //final SparkGlobalChannelTrafficShapingHandler sparkGlobalShaping = new SparkGlobalChannelTrafficShapingHandler(Executors.newScheduledThreadPool(1), 500, 500, 10, 10, 1000);
+      final SparkChannelTrafficShapingHandler sparkChannelShaping = new SparkChannelTrafficShapingHandler(0, 0);
+      logger.info("TransportServer initialize pipeline, channel local host: " + channel.localAddress().getHostString());
+      if (channel.localAddress().getHostString().equals("10.1.255.246"))
+        sparkChannelShaping.configure(10, 0);
+
+      TransportChannelHandler channelHandler = createChannelHandler(channel, channelRpcHandler);
+
+      channel.pipeline()
+              .addLast("encoder", ENCODER)
+              .addLast(TransportFrameDecoder.HANDLER_NAME, NettyUtils.createFrameDecoder())
+              .addLast("decoder", DECODER)
+              .addLast("channelTrafficShaping", sparkChannelShaping)
+              .addLast("idleStateHandler", new IdleStateHandler(0, 0, conf.connectionTimeoutMs() / 1000))
+              // NOTE: Chunks are currently guaranteed to be returned in the order of request, but this
+              // would require more logic to guarantee if this were not part of the same event loop.
+              .addLast("handler", channelHandler);
+
+      /*if (host.equals("10.1.255.246")) {
+        logger.info("do the control on read bandwidth on host: " + host);
+        channel.pipeline().addLast("channelTrafficShaping", readChannelShaping);
+      }*/
+
+      return channelHandler;
+    } catch (RuntimeException e) {
+      logger.error("Error while initializing Netty pipeline", e);
+      throw e;
+    }
+  }
+
+
   /**
    * Creates the server- and client-side handler which is used to handle both RequestMessages and
    * ResponseMessages. The channel is expected to have been successfully created, though certain
@@ -171,6 +234,21 @@ public class TransportContext {
       rpcHandler);
     return new TransportChannelHandler(client, responseHandler, requestHandler,
       conf.connectionTimeoutMs(), closeIdleConnections);
+  }
+
+  /**
+   * added by zhaojie
+   * Creates the server- and client-side handler which is used to handle both RequestMessages and
+   * ResponseMessages. The channel is expected to have been successfully created, though certain
+   * properties (such as the remoteAddress()) may not be available yet.
+   */
+  private TransportChannelHandler createChannelHandler(Channel channel, RpcHandler rpcHandler, AbstractTrafficShapingHandler channelShaping) {
+    TransportResponseHandler responseHandler = new TransportResponseHandler(channel);
+    TransportClient client = new TransportClient(channel, responseHandler);
+    TransportRequestHandler requestHandler = new TransportRequestHandler(channel, client,
+            rpcHandler, channelShaping);
+    return new TransportChannelHandler(client, responseHandler, requestHandler,
+            conf.connectionTimeoutMs(), closeIdleConnections);
   }
 
   public TransportConf getConf() { return conf; }

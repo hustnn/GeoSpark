@@ -120,7 +120,10 @@ public class TransportServer implements Closeable {
         for (TransportServerBootstrap bootstrap : bootstraps) {
           rpcHandler = bootstrap.doBootstrap(ch, rpcHandler);
         }
-        context.initializePipeline(ch, rpcHandler);
+
+        // modified by zhaojie
+        //context.initializePipeline(ch, rpcHandler);
+        context.initializePipeline(ch, rpcHandler, hostToBind);
       }
     });
 
@@ -131,6 +134,8 @@ public class TransportServer implements Closeable {
 
     port = ((InetSocketAddress) channelFuture.channel().localAddress()).getPort();
     logger.debug("Shuffle server started on port: {}", port);
+    // added by zhaojie
+    //logger.info("Shuffle server started on port: {}", port);
   }
 
   @Override

@@ -123,6 +123,10 @@ public class OneForOneBlockFetcher {
               client.stream(OneForOneStreamManager.genStreamChunkId(streamHandle.streamId, i),
                 new DownloadCallback(shuffleFiles[i], i));
             } else {
+              // added by zhaojie
+              logger.info("Sending fetch chunk request from {} to {}", client.getChannel().localAddress().toString(),
+                      client.getChannel().remoteAddress().toString());
+              
               client.fetchChunk(streamHandle.streamId, i, chunkCallback);
             }
           }
