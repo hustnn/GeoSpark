@@ -399,6 +399,107 @@ private[spark] class TaskSchedulerImpl private[scheduler](
     return tasks
   }
 
+  /*
+  added by zhaojie for performance-optimized resource offer
+   */
+    def optimizedResourceOffers(offers: IndexedSeq[WorkerOfferNetwork]): Seq[Seq[TaskDescription]] = synchronized {
+    // Mark each slave as alive and remember its hostname
+    // Also track if new executor is added
+    var newExecAvail = false
+    for (o <- offers) {
+      if (!hostToExecutors.contains(o.host)) {
+        hostToExecutors(o.host) = new HashSet[String]()
+        // added by zhaojie
+        logInfo("Initialize the host to executors for host " + o.host)
+      }
+      if (!executorIdToRunningTaskIds.contains(o.executorId)) {
+        hostToExecutors(o.host) += o.executorId
+        executorAdded(o.executorId, o.host)
+        executorIdToHost(o.executorId) = o.host
+        executorIdToRunningTaskIds(o.executorId) = HashSet[Long]()
+        newExecAvail = true
+      }
+      for (rack <- getRackForHost(o.host)) {
+        hostsByRack.getOrElseUpdate(rack, new HashSet[String]()) += o.host
+      }
+    }
+
+    // Before making any offers, remove any nodes from the blacklist whose blacklist has expired. Do
+    // this here to avoid a separate thread and added synchronization overhead, and also because
+    // updating the blacklist is only relevant when task offers are being made.
+    blacklistTrackerOpt.foreach(_.applyBlacklistTimeout())
+
+    val filteredOffers = blacklistTrackerOpt.map { blacklistTracker =>
+      offers.filter { offer =>
+        !blacklistTracker.isNodeBlacklisted(offer.host) &&
+          !blacklistTracker.isExecutorBlacklisted(offer.executorId)
+      }
+    }.getOrElse(offers)
+
+    // filter offers whose queue length == 0, only assign the tasks to the executor whose queue length == 0
+    // bi-partitioned scheduling algorithm
+    val availableOffers = filteredOffers.filter { offer => offer.queueLength == 0}
+    val queueLength = 10.0
+
+    // build the graph
+    // add node vertex
+    val graph = new Graph()
+    for (offer <- availableOffers) {
+      val nodeVertex = new NodeVertex(graph.getCurVertexId(), offer.host)
+      graph.addNodeVertex(nodeVertex)
+    }
+
+    // add task vertex
+    val groupSize = graph.vertices.size
+    val sortedTaskSets = rootPool.getSortedTaskSetQueue
+    for (taskSetManager <- sortedTaskSets) {
+      // different jobs
+      val taskGroups = taskSetManager.taskSet.getTaskGroups
+      val inputDist = taskSetManager.taskSet.getInputDist
+      val maxPartitionSize = inputDist.maxBy(_._2)._2
+      for ((bestHost, tasks) <- taskGroups) {
+        // each job has different task groups
+        val vertexNum = Math.min(Math.ceil(tasks.size / queueLength), availableOffers.size).toInt
+        for (nodeVertex <- graph.getNodeVertices) {
+          // calculate the edge weight for task vertex and node vertex
+          val nodeHost = nodeVertex.host
+          var weight = 0.0
+          if (taskSetManager.stageId == 0) {
+            if (bestHost == nodeHost)
+              weight = 1
+            else
+              weight = 0
+          } else {
+            weight = inputDist.get(nodeHost) / maxPartitionSize
+          }
+          for (i <- 1 to vertexNum) {
+            // each task group can get multiple nodes
+            val taskVertex = new TaskVertex(graph.getCurVertexId())
+            val edge = new Edge(graph.getCurEdgeId(), nodeVertex, taskVertex, weight)
+            graph.addEdge(edge)
+            nodeVertex.addEdge(edge)
+            taskVertex.addEdge(edge)
+          }
+        }
+      }
+    }
+
+    // graph matching
+    val matching = graph.pathGrowingMatch()
+
+    //
+
+  }
+
+  // added by zhaojie
+  def resourceOfferAssignment(resources: List[(WorkerOfferNetwork, TaskSetManager, String)]): Map[String, Seq[TaskDescription]] = {
+    val tasks = resources.map(r => r._3 -> new ArrayBuffer[TaskDescription](r._1.queueLength)).toMap
+    for (resource <- resources) {
+      assignTasksInGroupToWorkerOffer(resource._2, TaskLocality.ANY, resource._1, resource._3, tasks)
+    }
+    tasks
+  }
+
   /**
    * Shuffle offers around to avoid always placing tasks on the same workers.  Exposed to allow
    * overriding in tests, so it can be deterministic.
